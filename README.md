@@ -5,7 +5,11 @@ Prpic is a command-line tool that renders images and PDF pages directly in the t
 ```bash
 prpic photo.jpg
 prpic --ascii document.pdf
+prpic --text document.pdf
 ```
+
+`--text` extracts the real text content of a PDF's first page instead of rasterizing it —
+useful since dense body text easily becomes illegible once downsampled to terminal resolution.
 
 ## Goals
 

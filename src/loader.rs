@@ -86,3 +86,22 @@ impl Loader for PdfLoader {
         Ok(image.into_rgb8())
     }
 }
+
+/// Extracts the real text content of a PDF's first page instead of rasterizing it,
+/// so dense body text stays legible regardless of terminal resolution.
+pub fn extract_pdf_text(path: &str) -> Result<String, String> {
+    let pdfium = bind_pdfium()?;
+    let document = pdfium
+        .load_pdf_from_file(path, None)
+        .map_err(|e| format!("Failed to load PDF: {e}"))?;
+    let page = document
+        .pages()
+        .first()
+        .map_err(|e| format!("PDF has no pages: {e}"))?;
+
+    Ok(page
+        .text()
+        .map_err(|e| format!("Failed to read PDF text: {e}"))?
+        .all())
+}
+
