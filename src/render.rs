@@ -85,6 +85,78 @@ pub fn current_terminal_size() -> (u32, u32) {
         .unwrap_or(FALLBACK_TERMINAL_SIZE)
 }
 
+/// A run of extracted document text with optional formatting, independent of which file
+/// format (docx, PDF, ...) it was extracted from.
+pub struct TextSpan {
+    pub text: String,
+    pub bold: bool,
+    pub italic: bool,
+    pub underline: bool,
+}
+
+impl TextSpan {
+    pub fn plain(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            bold: false,
+            italic: false,
+            underline: false,
+        }
+    }
+}
+
+/// Renders extracted document text (as opposed to rasterized pixels) to a terminal string.
+/// The text/pixel split mirrors [Renderer]: sources hand over [TextSpan]s and stay unaware
+/// of whether the result ends up styled or plain.
+pub trait TextRenderer {
+    fn render(&self, spans: &[TextSpan]) -> String;
+}
+
+/// Keeps bold/italic/underline formatting via ANSI codes. Used for the default (non `--text`)
+/// rendering of text-based documents.
+pub struct StyledTextRenderer;
+
+impl TextRenderer for StyledTextRenderer {
+    fn render(&self, spans: &[TextSpan]) -> String {
+        let mut output = String::new();
+
+        for span in spans {
+            if span.text.is_empty() {
+                continue;
+            }
+
+            let mut codes = Vec::new();
+            if span.bold {
+                codes.push("1");
+            }
+            if span.italic {
+                codes.push("3");
+            }
+            if span.underline {
+                codes.push("4");
+            }
+
+            if codes.is_empty() {
+                output.push_str(&span.text);
+            } else {
+                write!(output, "\x1b[{}m{}\x1b[0m", codes.join(";"), span.text)
+                    .expect("writing to a String cannot fail");
+            }
+        }
+
+        output
+    }
+}
+
+/// Strips all styling down to plain text. Used for `--text` mode.
+pub struct PlainTextRenderer;
+
+impl TextRenderer for PlainTextRenderer {
+    fn render(&self, spans: &[TextSpan]) -> String {
+        spans.iter().map(|span| span.text.as_str()).collect()
+    }
+}
+
 fn ascii_output_dimensions(
     image_width: u32,
     image_height: u32,

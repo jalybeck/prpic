@@ -1,21 +1,16 @@
+mod docx_source;
 mod loader;
 mod pager;
 mod render;
 mod sources;
 
 use std::env;
-use std::path::Path;
-
-use loader::bind_pdfium;
-use pager::run_paged;
-use render::{AsciiRenderer, HalfBlockRenderer, Renderer, current_terminal_size};
-use sources::{ImagePageSource, PdfImagePageSource, PdfTextPageSource};
 
 #[derive(Debug, PartialEq)]
-struct Options {
-    path: String,
-    ascii: bool,
-    text: bool,
+pub(crate) struct Options {
+    pub(crate) path: String,
+    pub(crate) ascii: bool,
+    pub(crate) text: bool,
 }
 
 fn parse_options(args: impl IntoIterator<Item = String>) -> Result<Options, String> {
@@ -46,67 +41,11 @@ fn main() {
         std::process::exit(1);
     });
 
-    let is_pdf = Path::new(&options.path)
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"));
-
-    if options.text && !is_pdf {
-        eprintln!("--text can only be used with PDF files");
-        std::process::exit(1);
-    }
-
-    let result = if options.text {
-        run_pdf_text(&options.path)
-    } else if is_pdf {
-        run_pdf_image(&options)
-    } else {
-        run_static_image(&options)
-    };
-
-    if let Err(error) = result {
+    if let Err(error) = loader::run(&options) {
         eprintln!("{error}");
         std::process::exit(1);
     }
 }
-
-fn run_pdf_text(path: &str) -> Result<(), String> {
-    let pdfium = bind_pdfium()?;
-    let document = pdfium
-        .load_pdf_from_file(path, None)
-        .map_err(|e| format!("Failed to load PDF: {e}"))?;
-    let source = PdfTextPageSource::new(document);
-    run_paged(&source)
-}
-
-fn run_pdf_image(options: &Options) -> Result<(), String> {
-    let pdfium = bind_pdfium()?;
-    let document = pdfium
-        .load_pdf_from_file(&options.path, None)
-        .map_err(|e| format!("Failed to load PDF: {e}"))?;
-
-    let renderer = build_renderer(options);
-    let (terminal_width, terminal_height) = current_terminal_size();
-    let source = PdfImagePageSource::new(document, renderer, terminal_width, terminal_height);
-    run_paged(&source)
-}
-
-fn run_static_image(options: &Options) -> Result<(), String> {
-    let renderer = build_renderer(options);
-    let (terminal_width, terminal_height) = current_terminal_size();
-    let source =
-        ImagePageSource::load(options.path.clone(), renderer, terminal_width, terminal_height)?;
-    run_paged(&source)
-}
-
-fn build_renderer(options: &Options) -> Box<dyn Renderer> {
-    if options.ascii {
-        Box::new(AsciiRenderer)
-    } else {
-        Box::new(HalfBlockRenderer)
-    }
-}
-
 
 #[cfg(test)]
 mod tests {
