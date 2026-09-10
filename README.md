@@ -48,6 +48,6 @@ build and publishes release packages; older versions are not kept.
 <!-- BUILD_TABLE_START -->
 | Package | Platform | Built |
 | --- | --- | --- |
-| [prpic_win_x64.zip](https://github.com/jalybeck/prpic/releases/latest/download/prpic_win_x64.zip) | Windows x64 | 2026-09-10 04:58 UTC |
-| [prpic_linux_x64.tar.gz](https://github.com/jalybeck/prpic/releases/latest/download/prpic_linux_x64.tar.gz) | Linux x64 | 2026-09-10 04:58 UTC |
+| [prpic_win_x64.zip](https://github.com/jalybeck/prpic/releases/latest/download/prpic_win_x64.zip) | Windows x64 | 2026-09-10 07:49 UTC |
+| [prpic_linux_x64.tar.gz](https://github.com/jalybeck/prpic/releases/latest/download/prpic_linux_x64.tar.gz) | Linux x64 | 2026-09-10 07:49 UTC |
 <!-- BUILD_TABLE_END -->
