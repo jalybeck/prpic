@@ -1,11 +1,15 @@
 mod loader;
+mod pager;
 mod render;
+mod sources;
 
 use std::env;
 use std::path::Path;
 
-use loader::{FileLoader, Loader, PdfLoader, extract_pdf_text};
+use loader::bind_pdfium;
+use pager::run_paged;
 use render::{AsciiRenderer, HalfBlockRenderer, Renderer, current_terminal_size};
+use sources::{ImagePageSource, PdfImagePageSource, PdfTextPageSource};
 
 #[derive(Debug, PartialEq)]
 struct Options {
@@ -47,40 +51,62 @@ fn main() {
         .and_then(|ext| ext.to_str())
         .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"));
 
-    if options.text {
-        if !is_pdf {
-            eprintln!("--text can only be used with PDF files");
-            std::process::exit(1);
-        }
-
-        let text = extract_pdf_text(&options.path).unwrap_or_else(|error| {
-            eprintln!("{error}");
-            std::process::exit(1);
-        });
-        print!("{text}");
-        return;
+    if options.text && !is_pdf {
+        eprintln!("--text can only be used with PDF files");
+        std::process::exit(1);
     }
 
-    let loader: Box<dyn Loader> = if is_pdf {
-        Box::new(PdfLoader { path: options.path })
+    let result = if options.text {
+        run_pdf_text(&options.path)
+    } else if is_pdf {
+        run_pdf_image(&options)
     } else {
-        Box::new(FileLoader { path: options.path })
+        run_static_image(&options)
     };
 
-    let image = loader.load().unwrap_or_else(|error| {
+    if let Err(error) = result {
         eprintln!("{error}");
         std::process::exit(1);
-    });
+    }
+}
 
-    let renderer: Box<dyn Renderer> = if options.ascii {
+fn run_pdf_text(path: &str) -> Result<(), String> {
+    let pdfium = bind_pdfium()?;
+    let document = pdfium
+        .load_pdf_from_file(path, None)
+        .map_err(|e| format!("Failed to load PDF: {e}"))?;
+    let source = PdfTextPageSource::new(document);
+    run_paged(&source)
+}
+
+fn run_pdf_image(options: &Options) -> Result<(), String> {
+    let pdfium = bind_pdfium()?;
+    let document = pdfium
+        .load_pdf_from_file(&options.path, None)
+        .map_err(|e| format!("Failed to load PDF: {e}"))?;
+
+    let renderer = build_renderer(options);
+    let (terminal_width, terminal_height) = current_terminal_size();
+    let source = PdfImagePageSource::new(document, renderer, terminal_width, terminal_height);
+    run_paged(&source)
+}
+
+fn run_static_image(options: &Options) -> Result<(), String> {
+    let renderer = build_renderer(options);
+    let (terminal_width, terminal_height) = current_terminal_size();
+    let source =
+        ImagePageSource::load(options.path.clone(), renderer, terminal_width, terminal_height)?;
+    run_paged(&source)
+}
+
+fn build_renderer(options: &Options) -> Box<dyn Renderer> {
+    if options.ascii {
         Box::new(AsciiRenderer)
     } else {
         Box::new(HalfBlockRenderer)
-    };
-
-    let (terminal_width, terminal_height) = current_terminal_size();
-    print!("{}", renderer.render(&image, terminal_width, terminal_height));
+    }
 }
+
 
 #[cfg(test)]
 mod tests {
