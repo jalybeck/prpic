@@ -1,8 +1,10 @@
 mod docx_source;
 mod loader;
+mod markdown_source;
 mod pager;
 mod render;
 mod sources;
+mod text_source;
 
 use std::env;
 

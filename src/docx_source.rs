@@ -3,7 +3,7 @@ use docx_rs::{
 };
 
 use crate::pager::PageSource;
-use crate::render::{TextRenderer, TextSpan, current_terminal_size};
+use crate::render::{TextRenderer, TextSpan, paginate_spans_by_terminal_height};
 
 /// Renders a .docx document as extracted text, paginated to fit the terminal.
 ///
@@ -68,52 +68,7 @@ fn read_pages(path: &str) -> Result<Vec<Vec<TextSpan>>, String> {
     }
 
     pages.push(current);
-    Ok(paginate_by_terminal_height(pages))
-}
-
-/// Splits each hard-break page's spans further into chunks of at most one terminal height's
-/// worth of lines, leaving one line free for the "-- MORE --" prompt itself.
-fn paginate_by_terminal_height(pages: Vec<Vec<TextSpan>>) -> Vec<Vec<TextSpan>> {
-    let (_, terminal_height) = current_terminal_size();
-    let lines_per_page = (terminal_height as usize).saturating_sub(1).max(1);
-
-    let mut result = Vec::new();
-
-    for page in pages {
-        let mut chunk = Vec::new();
-        let mut lines_in_chunk = 0;
-
-        for span in page {
-            for (i, part) in span.text.split('\n').enumerate() {
-                if i > 0 {
-                    lines_in_chunk += 1;
-                    if lines_in_chunk >= lines_per_page {
-                        result.push(std::mem::take(&mut chunk));
-                        lines_in_chunk = 0;
-                    } else {
-                        chunk.push(TextSpan::plain("\n"));
-                    }
-                }
-
-                if !part.is_empty() {
-                    chunk.push(TextSpan {
-                        text: part.to_string(),
-                        bold: span.bold,
-                        italic: span.italic,
-                        underline: span.underline,
-                    });
-                }
-            }
-        }
-
-        result.push(chunk);
-    }
-
-    if result.is_empty() {
-        result.push(Vec::new());
-    }
-
-    result
+    Ok(paginate_spans_by_terminal_height(pages))
 }
 
 fn append_children(
@@ -169,6 +124,12 @@ fn push_run_text(text: &str, run: &Run, current: &mut Vec<TextSpan>) {
         bold: run.run_property.bold.is_some(),
         italic: run.run_property.italic.is_some(),
         underline: run.run_property.underline.is_some(),
+        code: false,
+        strikethrough: false,
+        blockquote: false,
+        link: false,
+        heading_level: 0,
+        is_marker: false,
     });
 }
 

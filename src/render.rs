@@ -86,12 +86,25 @@ pub fn current_terminal_size() -> (u32, u32) {
 }
 
 /// A run of extracted document text with optional formatting, independent of which file
-/// format (docx, PDF, ...) it was extracted from.
+/// format (docx, PDF, markdown, ...) it was extracted from.
 pub struct TextSpan {
     pub text: String,
     pub bold: bool,
     pub italic: bool,
     pub underline: bool,
+    pub code: bool,
+    pub strikethrough: bool,
+    /// Quoted text (markdown `>`): styled dim/italic, no visual equivalent needed for the
+    /// literal `>` marker itself (see `is_marker`).
+    pub blockquote: bool,
+    /// Link text (markdown `[text](url)`): styled like a typical terminal hyperlink. The
+    /// destination URL itself is intentionally dropped, only the visible text is kept.
+    pub link: bool,
+    /// 0 for non-heading text, otherwise the markdown heading level (1 = `#`, 2 = `##`, ...).
+    pub heading_level: u8,
+    /// Literal markup text (`#`, `` ` ``, `>`): printed in plain text mode, but skipped when
+    /// styled since color/formatting already conveys the meaning.
+    pub is_marker: bool,
 }
 
 impl TextSpan {
@@ -101,6 +114,12 @@ impl TextSpan {
             bold: false,
             italic: false,
             underline: false,
+            code: false,
+            strikethrough: false,
+            blockquote: false,
+            link: false,
+            heading_level: 0,
+            is_marker: false,
         }
     }
 }
@@ -112,8 +131,8 @@ pub trait TextRenderer {
     fn render(&self, spans: &[TextSpan]) -> String;
 }
 
-/// Keeps bold/italic/underline formatting via ANSI codes. Used for the default (non `--text`)
-/// rendering of text-based documents.
+/// Keeps bold/italic/underline/code formatting via ANSI codes. Used for the default
+/// (non `--text`) rendering of text-based documents.
 pub struct StyledTextRenderer;
 
 impl TextRenderer for StyledTextRenderer {
@@ -121,19 +140,36 @@ impl TextRenderer for StyledTextRenderer {
         let mut output = String::new();
 
         for span in spans {
-            if span.text.is_empty() {
+            if span.text.is_empty() || span.is_marker {
                 continue;
             }
 
             let mut codes = Vec::new();
-            if span.bold {
-                codes.push("1");
+            match span.heading_level {
+                // H1 gets a full banner (bold white-on-blue) to anchor the top of a document.
+                1 => codes.extend(["1", "97", "44"]),
+                // H2 stays inline but still stands out via a bold accent color.
+                2 => codes.extend(["1", "96"]),
+                _ if span.bold => codes.push("1"),
+                _ => {}
             }
-            if span.italic {
+            if span.italic || span.blockquote {
                 codes.push("3");
             }
-            if span.underline {
+            if span.underline || span.link {
                 codes.push("4");
+            }
+            if span.code {
+                codes.push("2"); // faint, to set code apart from surrounding prose
+            }
+            if span.strikethrough {
+                codes.push("9");
+            }
+            if span.blockquote {
+                codes.push("90"); // dim gray, sets quoted text apart from surrounding prose
+            }
+            if span.link {
+                codes.push("94"); // bright blue, mirrors the usual hyperlink color
             }
 
             if codes.is_empty() {
@@ -156,6 +192,61 @@ impl TextRenderer for PlainTextRenderer {
         spans.iter().map(|span| span.text.as_str()).collect()
     }
 }
+
+/// Splits already-paged spans further into chunks of at most one terminal height's worth of
+/// lines, leaving one line free for the "-- MORE --" prompt itself. Shared by every text-based
+/// [crate::pager::PageSource] (docx, markdown, plain text) so long content pages correctly
+/// even when the source format has no page boundaries of its own.
+pub fn paginate_spans_by_terminal_height(pages: Vec<Vec<TextSpan>>) -> Vec<Vec<TextSpan>> {
+    let (_, terminal_height) = current_terminal_size();
+    let lines_per_page = (terminal_height as usize).saturating_sub(1).max(1);
+
+    let mut result = Vec::new();
+
+    for page in pages {
+        let mut chunk = Vec::new();
+        let mut lines_in_chunk = 0;
+
+        for span in page {
+            for (i, part) in span.text.split('\n').enumerate() {
+                if i > 0 {
+                    lines_in_chunk += 1;
+                    if lines_in_chunk >= lines_per_page {
+                        result.push(std::mem::take(&mut chunk));
+                        lines_in_chunk = 0;
+                    } else {
+                        chunk.push(TextSpan::plain("\n"));
+                    }
+                }
+
+                if !part.is_empty() {
+                    chunk.push(TextSpan {
+                        text: part.to_string(),
+                        bold: span.bold,
+                        italic: span.italic,
+                        underline: span.underline,
+                        code: span.code,
+                        strikethrough: span.strikethrough,
+                        blockquote: span.blockquote,
+                        link: span.link,
+                        heading_level: span.heading_level,
+                        is_marker: span.is_marker,
+                    });
+                }
+            }
+        }
+
+        result.push(chunk);
+    }
+
+    if result.is_empty() {
+        result.push(Vec::new());
+    }
+
+    result
+}
+
+
 
 fn ascii_output_dimensions(
     image_width: u32,

@@ -8,6 +8,9 @@ prpic --ascii document.pdf
 prpic --text document.pdf
 prpic document.docx
 prpic --text document.docx
+prpic notes.txt
+prpic document.md
+prpic --text document.md
 ```
 
 `--text` extracts a PDF's real text content instead of rasterizing it — useful since dense
@@ -21,14 +24,22 @@ Since a `.docx` has no fixed page layout in the file itself, prpic splits it at 
 breaks (Ctrl+Enter in Word) where present, and additionally chunks the text to fit the
 current terminal height so long documents without any explicit break still page correctly.
 
-Multi-page PDFs and docx files are shown one page at a time. When run in an interactive
-terminal, prpic pauses between pages with a `-- MORE (n/total) --` prompt: press Enter to see
-the next page, or `q` to stop early. When output is redirected or piped, all pages are
-printed back to back with no prompts.
+`.md`/`.markdown` files are rendered similarly: headings, bold/italic emphasis, lists,
+blockquotes and code (inline and fenced blocks) are turned into ANSI-styled text by default,
+or `--text` for plain text. Since markdown has no page concept at all, the whole file is
+chunked purely by terminal height. Plain `.txt` files are just printed as-is, chunked by
+terminal height the same way; there's no formatting to strip, so `--text` isn't relevant
+for them.
+
+Multi-page PDFs, docx, and markdown files are shown one page at a time. When run in an
+interactive terminal, prpic pauses between pages with a `-- MORE (n/total) --` prompt: press
+Enter to see the next page, or `q` to stop early. When output is redirected or piped, all
+pages are printed back to back with no prompts.
 
 ## Goals
 
-- Render common image formats and every page of a PDF or docx to the terminal, one page at a time
+- Render common image formats and every page of a PDF, docx, or markdown file to the
+  terminal, one page at a time
 - Default to full 24-bit color output using half-block characters for images/PDFs
 - Support a plain `--ascii` fallback for terminals without color/Unicode support
 - Ship as a single self-contained binary with no manual runtime setup, including PDF support
@@ -45,9 +56,11 @@ styles can be added independently:
   `PageSource` and renderer so `main` itself stays free of format-specific details.
 - `Renderer` (`src/render.rs`) turns pixel data into terminal output. `HalfBlockRenderer`
   is the default; `AsciiRenderer` is used with `--ascii`. `TextRenderer` is the equivalent
-  for extracted document text (`TextSpan`s, tagged with bold/italic/underline):
+  for extracted document text (`TextSpan`s, tagged with bold/italic/underline/code):
   `StyledTextRenderer` keeps that formatting as ANSI codes, `PlainTextRenderer` strips it for
-  `--text` mode.
+  `--text` mode. `render.rs` also has `paginate_spans_by_terminal_height`, a shared helper
+  that chunks any `Vec<TextSpan>` pages to the current terminal height, used by every
+  text-based `PageSource`.
 - `PageSource` (`src/pager.rs`) is a content-agnostic abstraction for anything that can be
   rendered one page at a time (`page_count()` + `render_page(index)`). `run_paged()` drives
   any `PageSource` through the terminal, showing the `-- MORE --` prompt between pages.
@@ -61,6 +74,13 @@ styles can be added independently:
   `TextSpan`s, splitting at explicit page breaks and further chunking by terminal height.
   It takes a `TextRenderer` just like `ImagePageSource` takes a `Renderer`, so the same
   struct serves both the default styled output and `--text` mode.
+- `src/markdown_source.rs` provides `MarkdownPageSource` for `.md`/`.markdown` files, using
+  the [pulldown-cmark](https://github.com/pulldown-cmark/pulldown-cmark) crate to turn
+  headings, emphasis, lists, blockquotes and code into `TextSpan`s. Like `DocxPageSource`, it
+  takes a `TextRenderer` so it serves both styled and `--text` output.
+- `src/text_source.rs` provides `TextFilePageSource` for plain `.txt` files. There's no
+  formatting to preserve or strip, so unlike the docx/markdown sources it always renders
+  through `PlainTextRenderer` directly rather than taking a `TextRenderer` choice.
 
 The Pdfium library is downloaded by `build.rs` from a pinned
 [pdfium-binaries](https://github.com/bblanchon/pdfium-binaries) release (checksum-verified),
